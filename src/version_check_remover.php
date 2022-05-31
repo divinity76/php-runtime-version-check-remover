@@ -1,6 +1,7 @@
 #!/usr/bin/env php
 <?php
 declare (strict_types = 1);
+
 require_once (__DIR__ . '/../vendor/autoload.php'); // idk if i need to replace / with DIRECTORY_SEPARATOR or not, cba checking.
 require_once(__DIR__ . '/php_constants.php');
 use PhpParser\Node;
@@ -75,6 +76,7 @@ function process_file(string $source, string $target, bool $verbose): void
     $linesToCommentOut = [];
     $parser = (new ParserFactory)->create(ParserFactory::PREFER_PHP7);
     $ast = $parser->parse($raw);
+
     $traverser = new NodeTraverser();
     $traverser->addVisitor(new class($linesToCommentOut) extends NodeVisitorAbstract
     {
@@ -140,14 +142,15 @@ function process_dir(string $source_dir, string $target_dir, bool $verbose): voi
     if (!is_dir($source_dir)) {
         throw new Exception("Source directory '$source_dir' is not a directory");
     }
+    $dir = opendir($source_dir);
+    if ($dir === false) {
+        error_log("Failed to open directory '{$source_dir}'\n");
+        return;
+    }
     if (!is_dir($target_dir)) {
         if (!mkdir($target_dir, 0755, true)) {
             throw new Exception("Could not create target directory '$target_dir'");
         }
-    }
-    $dir = opendir($source_dir);
-    if ($dir === false) {
-        throw new Exception("Failed to open directory '$source_dir'");
     }
     while (false !== ($file = readdir($dir))) {
         if ($file === '.' || $file === '..') {
@@ -159,7 +162,15 @@ function process_dir(string $source_dir, string $target_dir, bool $verbose): voi
             process_dir($source_file, $target_file, $verbose);
         } else {
             if (pathinfo($source_file, PATHINFO_EXTENSION) === 'php') {
-                process_file($source_file, $target_file, $verbose);
+                try{
+                    process_file($source_file, $target_file, $verbose);
+                } catch(\PhpParser\Error $syntaxError) {
+                    // todo should i throw or keep on going? idk
+                    error_log("Failed to process file '{$source_file}': {$syntaxError->getMessage()}\n");
+                    if(!copy($source_file, $target_file)) {
+                        throw new Exception("Failed to copy file '{$source_file}' to '{$target_file}'");
+                    }
+                }
             }
         }
     }
